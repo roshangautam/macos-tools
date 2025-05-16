@@ -1,0 +1,10 @@
+README.md
+setup.py
+macos_tools/__init__.py
+macos_tools/cli.py
+macos_tools.egg-info/PKG-INFO
+macos_tools.egg-info/SOURCES.txt
+macos_tools.egg-info/dependency_links.txt
+macos_tools.egg-info/entry_points.txt
+macos_tools.egg-info/requires.txt
+macos_tools.egg-info/top_level.txt
