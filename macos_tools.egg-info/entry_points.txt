@@ -1,2 +1,0 @@
-[console_scripts]
-macos-tools = macos_tools.cli:cli
