@@ -6,6 +6,23 @@ A collection of useful command-line utilities for macOS system management and ma
 ![Python Version](https://img.shields.io/badge/python-3.6%2B-blue)
 ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
+## Table of Contents
+
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [System Information](#system-information)
+  - [Cleanup Utilities](#cleanup-utilities)
+  - [Port Management](#port-management)
+  - [Homebrew Management](#homebrew-management)
+  - [Xcode Cleanup](#xcode-cleanup)
+  - [Network Tools](#network-tools)
+- [Why macOS Tools?](#why-macos-tools)
+- [Safety Features](#safety-features)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Features
 
 - **System Information**: Get detailed information about your macOS system, including:
@@ -20,6 +37,32 @@ A collection of useful command-line utilities for macOS system management and ma
   - Temporary files
   - System temporary folders
   - With safety checks to prevent removing critical files
+  
+- **Port Management**: Manage network ports and associated processes:
+  - List processes using specific ports
+  - Kill processes on selected ports
+  - Scan port ranges for availability
+  - Built-in presets for common port groups (web, database, development)
+
+- **Homebrew Management**: Maintain your Homebrew installation:
+  - Update Homebrew and all formulae
+  - Clean up old versions and cache files
+  - Check for common problems with brew doctor
+  - Calculate disk space used by Homebrew
+  - List explicitly installed formulae
+  
+- **Xcode Cleanup**: Free up disk space by cleaning Xcode files:
+  - Clean derived data directory
+  - Manage archives (with option to keep latest)
+  - Remove old device support files
+  - Clean simulator data
+  - All cleanup operations with dry-run option
+  
+- **Network Tools**: Manage network settings and diagnose issues:
+  - Flush DNS cache
+  - View network interface information
+  - Show DNS configuration
+  - Configure proxy settings
 
 ## Prerequisites
 
@@ -102,6 +145,117 @@ macos-tools cleanup-temp --caches --tmp --force
 | `--tmp` | Clean /tmp directory |
 | `--var-folders` | Clean /private/var/folders (use with caution) |
 | `--all` | Clean all of the above locations |
+
+### Port Management
+
+Manage network ports and processes running on them:
+
+```bash
+# List processes using common web and development ports
+macos-tools ports list
+
+# List processes using specific port
+macos-tools ports list --port 8080
+
+# List processes on common web ports (80, 443, 3000, 8000, 8080, 8888)
+macos-tools ports list --web
+
+# List processes on database ports (3306, 5432, 27017, etc.)
+macos-tools ports list --db
+
+# Kill process on specific port (with confirmation)
+macos-tools ports kill --port 8080
+
+# Force kill process without confirmation
+macos-tools ports kill --port 8080 --force --yes
+
+# Scan common ports
+macos-tools ports scan --common
+
+# Scan specific port range
+macos-tools ports scan --start 3000 --end 4000
+
+# Show only open ports in JSON format
+macos-tools ports scan --open-only --json
+```
+
+### Homebrew Management
+
+Maintain your Homebrew installation with these commands:
+
+```bash
+# Update Homebrew and all formulae
+macos-tools brew update
+
+# Clean up old versions and cache files (simulation)
+macos-tools brew cleanup
+
+# Actually perform cleanup
+macos-tools brew cleanup --dry-run
+
+# Check for common problems
+macos-tools brew doctor
+
+# Show disk space used by Homebrew
+macos-tools brew size
+
+# List explicitly installed formulae
+macos-tools brew leaves
+
+# Show dependencies for explicit installs
+macos-tools brew leaves --with-deps
+
+# Output any command in JSON format
+macos-tools brew leaves --json
+```
+
+### Xcode Cleanup
+
+Free up gigabytes of disk space by cleaning Xcode files:
+
+```bash
+# Clean derived data (simulation)
+macos-tools xcode cleanup derived-data --dry-run
+
+# Actually clean derived data
+macos-tools xcode cleanup derived-data
+
+# Clean archives but keep latest version for each project
+macos-tools xcode cleanup archives --keep-latest
+
+# Clean device support files but keep latest for each iOS version
+macos-tools xcode cleanup device-support --keep-latest
+
+# Clean simulator data
+macos-tools xcode cleanup simulators
+
+# Clean everything (with dry run)
+macos-tools xcode cleanup all --dry-run
+
+# Clean everything but keep latest archives and device support
+macos-tools xcode cleanup all --keep-latest --force
+```
+
+### Network Tools
+
+Manage network settings and diagnose issues:
+
+```bash
+# Flush DNS cache
+macos-tools network dns-flush
+
+# Show network interface information
+macos-tools network info
+
+# Show only DNS information
+macos-tools network info --dns
+
+# Show only IP information for a specific interface
+macos-tools network info --ip --interface en0
+
+# Output in JSON format
+macos-tools network info --json
+```
 
 ## Why macOS Tools?
 
