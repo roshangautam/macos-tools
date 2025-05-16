@@ -2154,8 +2154,74 @@ def cleanup_images(all_images, force, dry_run, yes, json_output):
         # Image list
         for image in image_list:
             click.echo(
-                f"{image.get('
+                f"{image.get('Repository', ''):{repo_width}} | "
+                f"{image.get('Tag', ''):{tag_width}} | "
+                f"{image.get('ID', '')[:12]:{id_width}} | "
+                f"{image.get('Size', ''):{size_width}}"
+            )
 
+    # In dry-run mode, just show what would be removed
+    if dry_run:
+        if json_output:
+            result = {
+                "dry_run": True,
+                "images": image_list,
+                "count": len(image_list),
+                "total_size": total_size,
+                "total_size_formatted": format_size(total_size)
+            }
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo("\nDry run complete. Use without --dry-run to actually remove images.")
+        return 0
+
+    # Confirm before removing
+    if not yes:
+        if not click.confirm(f"Remove {len(image_list)} images? This may break dependent containers."):
+            if json_output:
+                click.echo(json.dumps({"message": "Operation cancelled"}))
+            else:
+                click.echo("Operation cancelled.")
+            return 0
+
+    # Prepare removal command
+    rmi_cmd = ["rmi"]
+    if force:
+        rmi_cmd.append("-f")
+
+    # Add image IDs
+    image_ids = [image.get("ID") for image in image_list]
+
+    # Execute removal
+    if not json_output:
+        click.echo("\nRemoving images...")
+
+    return_code, stdout, stderr = run_docker_command(rmi_cmd + image_ids, streaming=True)
+
+    if return_code == 0:
+        if json_output:
+            result = {
+                "success": True,
+                "removed_count": len(image_list),
+                "images": image_list,
+                "total_size_freed": total_size,
+                "total_size_freed_formatted": format_size(total_size)
+            }
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"Successfully removed {len(image_list)} images.")
+    else:
+        if json_output:
+            result = {
+                "success": False,
+                "error": stderr,
+                "removed_count": 0
+            }
+            click.echo(json.dumps(result, indent=2))
+        else:
+            click.echo(f"Error removing images: {stderr}", err=True)
+
+    return return_code
 
 @network.command("dns-flush")
 @click.option("--force", "-f", is_flag=True, help="Skip confirmation prompt")
@@ -2344,4 +2410,108 @@ def network_info(interface, dns, ip, routes, json_output):
                 route_output = subprocess.run(["netstat", "-nr"], capture_output=True, text=True)
                 
                 if route_output.returncode == 0:
-                    in_
+                    # Process routing table output
+                    lines = route_output.stdout.strip().split('\n')
+                    headers = None
+                    
+                    for line in lines:
+                        if line.strip() and "Destination" in line:
+                            # This is the header line
+                            headers = [h for h in line.split() if h]
+                        elif line.strip() and headers:
+                            # This is a data line
+                            parts = line.split()
+                            if len(parts) >= len(headers):
+                                route = {}
+                                for i, header in enumerate(headers):
+                                    route[header.lower()] = parts[i]
+                                route_info.append(route)
+                
+                    # Filter by interface
+                    if interface:
+                        route_info = [r for r in route_info if r.get("netif", "") == interface]
+                        
+            except Exception as e:
+                if json_output:
+                    click.echo(json.dumps({"success": False, "error": str(e)}))
+                else:
+                    click.echo(f"Error getting routing information: {str(e)}", err=True)
+            
+            results["routes"] = route_info
+        
+        # Display the results
+        if json_output:
+            click.echo(json.dumps({"success": True, "results": results}))
+        else:
+            # Display interfaces
+            if ip and "interfaces" in results:
+                click.echo("\nNetwork Interfaces:")
+                click.echo("==================")
+                
+                for iface, info in results["interfaces"].items():
+                    click.echo(f"\n{iface}:")
+                    if "status" in info:
+                        click.echo(f"  Status: {info['status']}")
+                    
+                    if "addresses" in info and info["addresses"]:
+                        click.echo("  Addresses:")
+                        for addr in info["addresses"]:
+                            addr_type = addr.get("type", "unknown").upper()
+                            address = addr.get("address", "N/A")
+                            netmask = addr.get("netmask", "N/A")
+                            click.echo(f"    {addr_type}: {address} (Netmask: {netmask})")
+            
+            # Display DNS information
+            if dns and "dns" in results:
+                click.echo("\nDNS Configuration:")
+                click.echo("=================")
+                
+                if "servers" in results["dns"] and results["dns"]["servers"]:
+                    click.echo("\nDNS Servers:")
+                    for server in results["dns"]["servers"]:
+                        click.echo(f"  {server}")
+                
+                if "search_domains" in results["dns"] and results["dns"]["search_domains"]:
+                    click.echo("\nSearch Domains:")
+                    for domain in results["dns"]["search_domains"]:
+                        click.echo(f"  {domain}")
+                        
+                if "error" in results["dns"]:
+                    click.echo(f"\nError retrieving DNS information: {results['dns']['error']}")
+            
+            # Display routing information
+            if routes and "routes" in results:
+                click.echo("\nRouting Table:")
+                click.echo("=============")
+                
+                if not results["routes"]:
+                    click.echo("  No routes found.")
+                else:
+                    # Determine column widths
+                    headers = ["destination", "gateway", "flags", "netif"]
+                    widths = {h: len(h) for h in headers}
+                    
+                    for route in results["routes"]:
+                        for h in headers:
+                            if h in route:
+                                widths[h] = max(widths[h], len(route[h]))
+                    
+                    # Print header
+                    header = " | ".join(f"{h.upper():{widths[h]}}" for h in headers)
+                    separator = "-+-".join("-" * widths[h] for h in headers)
+                    click.echo(f"\n{header}")
+                    click.echo(separator)
+                    
+                    # Print routes
+                    for route in results["routes"]:
+                        row = " | ".join(f"{route.get(h, ''):{widths[h]}}" for h in headers)
+                        click.echo(row)
+        
+        return 0
+        
+    except Exception as e:
+        if json_output:
+            click.echo(json.dumps({"success": False, "error": str(e)}))
+        else:
+            click.echo(f"Error: {str(e)}", err=True)
+        return 1
