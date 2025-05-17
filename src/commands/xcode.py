@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 import click
-from macos_tools.commands.system import format_size, get_dir_size
+from src.commands.system import format_size, get_dir_size
 
 def check_xcode_path_exists(path: str) -> bool:
     """Check if an Xcode-related path exists."""

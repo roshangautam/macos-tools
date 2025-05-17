@@ -303,7 +303,7 @@ pip install -e ".[dev]"
 
 To add a new command to the toolkit:
 
-1. Add your command function to `macos_tools/cli.py` following the Click command pattern
+1. Add your command function to `src/cli.py` following the Click command pattern
 2. Update the documentation and README with usage instructions
 3. Add tests for your new command
 

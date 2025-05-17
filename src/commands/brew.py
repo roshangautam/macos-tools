@@ -7,7 +7,7 @@ import re
 import time
 from typing import List, Dict, Any, Optional, Tuple, Union
 import click
-from macos_tools.commands.system import format_size, get_dir_size
+from src.commands.system import format_size, get_dir_size
 
 def check_brew_exists() -> bool:
     """Check if Homebrew is installed on the system."""

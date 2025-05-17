@@ -10,7 +10,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "macos-tools=macos_tools.cli:cli",
+            "macos-tools=src.cli:cli",
         ],
     },
     author="Roshan Gautam",

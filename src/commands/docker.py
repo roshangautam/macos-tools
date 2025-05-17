@@ -346,10 +346,10 @@ def cleanup_images(all_images, force, dry_run, yes, json_output):
     # Show images that would be removed
     if not json_output:
         if all_images:
-            from macos_tools.commands.system import format_size
+            from src.commands.system import format_size
             click.echo(f"Found {len(image_list)} images that would be removed (approx. {format_size(total_size)}):")
         else:
-            from macos_tools.commands.system import format_size
+            from src.commands.system import format_size
             click.echo(f"Found {len(image_list)} unused images that would be removed (approx. {format_size(total_size)}):")
         
         # Calculate column widths
@@ -373,8 +373,8 @@ def cleanup_images(all_images, force, dry_run, yes, json_output):
 
     # In dry-run mode, just show what would be removed
     if dry_run:
-        if json_output:
-            from macos_tools.commands.system import format_size
+        if dry_run and json_output:
+            from src.commands.system import format_size
             result = {
                 "dry_run": True,
                 "images": image_list,
