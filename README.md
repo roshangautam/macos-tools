@@ -69,19 +69,37 @@ A collection of useful command-line utilities for macOS system management and ma
 - macOS operating system
 - Python 3.6 or higher
 - pip (Python package manager)
+- [Homebrew](https://brew.sh/) (for installation via Homebrew)
 
 ## Installation
 
-### From GitHub
+### Option 1: Install via Homebrew (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/roshangautam/macos-tools.git
-cd macos-tools
+# Tap this repository
+brew tap roshangautam/macos-tools https://github.com/roshangautam/macos-tools.git
 
 # Install the package
-pip install -e .
+brew install macos-tools
 ```
+
+### Option 2: Install from source
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/roshangautam/macos-tools.git
+   cd macos-tools
+   ```
+
+2. Install the package in development mode:
+   ```bash
+   python -m pip install -e .
+   ```
+   
+   Or install it directly with pip:
+   ```bash
+   pip install git+https://github.com/roshangautam/macos-tools.git
+   ```
 
 ### From PyPI (coming soon)
 

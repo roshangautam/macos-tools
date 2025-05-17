@@ -46,9 +46,15 @@ Thumbs.db
 
 # Build and dependency directories
 node_modules/
-dist/
+dist/*.tar.gz
 build/
 *.pyc
+
+# Keep the Homebrew tap files
+!homebrew-tap/Formula/
+!homebrew-tap/Formula/.gitkeep
+!homebrew-tap/README.md
+!homebrew-tap/.gitattributes
 __pycache__/
 *.py[cod]
 *$py.class
