@@ -18,7 +18,7 @@ from commands.xcode import xcode
 @click.version_option(package_name="macos-tools")
 def cli():
     """A collection of useful tools for macOS.
-    
+
     Provides commands for system management, package management,
     network tools and development environment setup.
     """

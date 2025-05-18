@@ -1,10 +1,9 @@
 """Test cases for the CLI interface.
 
-Contains unit tests for the main CLI entry point."""
+Contains unit tests for the main CLI entry point and all subcommands."""
 
+import pytest
 from click.testing import CliRunner
-
-# Import after installing package in development mode
 from cli import cli
 
 
@@ -13,7 +12,7 @@ def test_cli_basic():
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
-    assert "Show this message and exit." in result.output
+    assert "A collection of useful tools for macOS." in result.output
 
 
 def test_cli_version():
@@ -22,3 +21,14 @@ def test_cli_version():
     result = runner.invoke(cli, ["--version"])
     assert result.exit_code == 0
     assert "version" in result.output.lower()
+
+
+def test_all_commands_registered():
+    """Test that all commands are properly registered."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+    
+    # Verify all expected commands are present
+    expected_commands = ["system", "ports", "brew", "xcode", "network", "docker"]
+    for cmd in expected_commands:
+        assert cmd in result.output

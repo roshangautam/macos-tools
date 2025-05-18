@@ -1,8 +1,9 @@
 """Xcode management tools for macos-tools CLI."""
 
 import json
-import os, subprocess
+import os
 import shutil
+import subprocess
 from typing import Any, Dict, List, Tuple
 
 import click
