@@ -20,7 +20,7 @@ class HomebrewFormula
       license "MIT"
     
       depends_on :macos
-      depends_on "python@3.9"
+      depends_on "python@3.12"
     
       def install
         # Install Python package

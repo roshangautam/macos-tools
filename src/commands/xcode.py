@@ -1,27 +1,61 @@
 """Xcode management tools for macos-tools CLI."""
 
+import json
 import os
 import shutil
-import re
-import subprocess
-import json
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, List, Tuple
+
 import click
-from src.commands.system import format_size, get_dir_size
+
+from ..utils.formatting import format_size
+
+
+def get_dir_size(path: str) -> int:
+    """Calculate the total size of a directory in bytes.
+
+    Args:
+        path: Path to the directory.
+
+    Returns:
+        Total size in bytes.
+    """
+    total_size = 0
+    for dirpath, _, filenames in os.walk(path):
+        for filename in filenames:
+            filepath = os.path.join(dirpath, filename)
+            try:
+                total_size += os.path.getsize(filepath)
+            except (OSError, PermissionError):
+                continue
+    return total_size
+
 
 def check_xcode_path_exists(path: str) -> bool:
-    """Check if an Xcode-related path exists."""
+    """Check if an Xcode-related path exists.
+
+    Args:
+        path: Path to check for existence.
+
+    Returns:
+        bool: True if path exists, False otherwise.
+    """
     expanded_path = os.path.expanduser(path)
     return os.path.exists(expanded_path)
 
 
 def get_xcode_path_size(path: str) -> int:
-    """Get the size of an Xcode-related path."""
+    """Get the size of an Xcode-related path.
+
+    Args:
+        path: Path to calculate size for.
+
+    Returns:
+        int: Size in bytes.
+    """
     expanded_path = os.path.expanduser(path)
     if not os.path.exists(expanded_path):
         return 0
-    
+
     try:
         return get_dir_size(expanded_path)
     except Exception:
@@ -29,649 +63,855 @@ def get_xcode_path_size(path: str) -> int:
 
 
 def clean_xcode_path(path: str, dry_run: bool = False) -> int:
-    """Clean an Xcode-related path and return freed space."""
+    """Clean an Xcode-related path and return freed space.
+
+    Args:
+        path: Path to clean.
+        dry_run: If True, only show what would be done without making changes.
+
+    Returns:
+        int: Number of bytes that would be or were freed.
+    """
     expanded_path = os.path.expanduser(path)
+
     if not os.path.exists(expanded_path):
         return 0
-    
-    if dry_run:
-        return get_dir_size(expanded_path)
-    
-    size_before = get_dir_size(expanded_path)
-    
-    # Try to remove all contents but keep the directory
+
     try:
-        for item in os.listdir(expanded_path):
-            item_path = os.path.join(expanded_path, item)
-            try:
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.remove(item_path)
-            except (PermissionError, OSError) as e:
-                click.echo(f"Could not remove {item_path}: {str(e)}", err=True)
-    except (PermissionError, OSError) as e:
-        click.echo(f"Error accessing {expanded_path}: {str(e)}", err=True)
-    
-    # Calculate space freed
-    size_after = get_dir_size(expanded_path)
-    return size_before - size_after
+        # Check if the path is in use
+        if is_directory_in_use(expanded_path):
+            click.echo(f"Warning: {expanded_path} is in use and won't be modified.")
+            return 0
+
+        # Calculate size before deletion
+        total_size = get_dir_size(expanded_path)
+
+        if dry_run:
+            click.echo(f"Would remove {expanded_path} ({format_size(total_size)})")
+        else:
+            if os.path.isdir(expanded_path):
+                shutil.rmtree(expanded_path, ignore_errors=True)
+            else:
+                os.remove(expanded_path)
+            click.echo(f"Removed {expanded_path} ({format_size(total_size)})")
+
+        return total_size
+
+    except Exception as e:
+        click.echo(f"Error cleaning {expanded_path}: {str(e)}", err=True)
+        return 0
 
 
 def is_directory_in_use(path: str) -> bool:
-    """Check if a directory might be in use by checking for lock files or active processes."""
-    expanded_path = os.path.expanduser(path)
-    if not os.path.exists(expanded_path):
-        return False
-    
-    # Check if any processes are using this directory
+    """Check if a directory might be in use by checking for lock files or active processes.
+
+    Args:
+        path: Directory path to check.
+
+    Returns:
+        bool: True if the directory appears to be in use, False otherwise.
+    """
+    # Check for common lock files
+    lock_files = [
+        ".DS_Store",
+        "com.apple.dt.Xcode",
+        "com.apple.dt.xcodebuild",
+        "com.apple.DeveloperTools",
+    ]
+
     try:
-        cmd = f"lsof +D {expanded_path} 2>/dev/null | wc -l"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if result.returncode == 0 and int(result.stdout.strip()) > 0:
-            return True
-    except Exception:
-        pass
-    
-    # Check for lock files
-    try:
-        for root, dirs, files in os.walk(expanded_path):
-            for f in files:
-                if "lock" in f.lower() or f.endswith(".lock"):
+        for root, _, files in os.walk(path):
+            for file in files:
+                if any(lock_file in file for lock_file in lock_files):
                     return True
-    except Exception:
-        pass
-    
-    return False
+
+        # Check if any process is using the directory
+        try:
+            # This is a simple check and might not catch all cases
+            result = subprocess.run(
+                ["lsof", "+D", path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            return result.returncode == 0 and bool(result.stdout)
+
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return False
+
+    except (OSError, PermissionError):
+        return True
 
 
 @click.group()
-def xcode():
+def xcode() -> None:
     """Xcode management tools.
-    
+
     A collection of tools for managing Xcode installations and caches.
     """
     pass
 
 
 @xcode.group()
-def cleanup():
+def cleanup() -> None:
     """Clean up Xcode caches and temporary files.
-    
+
     Remove derived data, archives, and other Xcode-generated files to free up space.
     """
     pass
 
 
-@cleanup.command("derived-data")
-@click.option("--force", is_flag=True, help="Force cleanup even if directories appear to be in use")
-@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without actually removing files")
+@cleanup.command()
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force cleanup even if directories appear to be in use",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually removing files",
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def cleanup_derived_data(force, dry_run, json_output):
+def cleanup_derived_data(force: bool, dry_run: bool, json_output: bool) -> None:
     """Clean Xcode derived data directory.
-    
+
     Removes build products and intermediates to free up space.
     This directory can grow very large over time.
+
+    Args:
+        force: If True, clean even if directories appear to be in use.
+        dry_run: If True, only show what would be cleaned.
+        json_output: If True, output results in JSON format.
     """
-    derived_data_path = "~/Library/Developer/Xcode/DerivedData"
-    
-    if not check_xcode_path_exists(derived_data_path):
-        if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": f"Derived data directory not found at {derived_data_path}"
-            }))
-        else:
-            click.echo(f"Derived data directory not found at {derived_data_path}")
-        return 1
-    
-    # Check if in use
-    if not force and is_directory_in_use(derived_data_path):
-        if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": "Derived data directory appears to be in use. Use --force to clean anyway."
-            }))
-        else:
-            click.echo("Warning: Derived data directory appears to be in use.")
-            click.echo("This may indicate that Xcode or a build process is currently active.")
-            click.echo("Use --force to clean anyway, or close Xcode first.")
-        return 1
-    
-    # Get size before cleaning
-    size_before = get_xcode_path_size(derived_data_path)
-    
-    if json_output:
+    derived_data_paths = [
+        "~/Library/Developer/Xcode/DerivedData",
+        "~/Library/Developer/Xcode/Archives",
+    ]
+
+    total_freed = 0
+    results = {
+        "cleaned_paths": [],
+        "skipped_paths": [],
+        "total_freed_bytes": 0,
+        "total_freed_human": "0 B",
+    }
+
+    for path in derived_data_paths:
+        expanded_path = os.path.expanduser(path)
+        if not os.path.exists(expanded_path):
+            results["skipped_paths"].append(
+                {"path": expanded_path, "reason": "Does not exist"}
+            )
+            continue
+
+        if not force and is_directory_in_use(expanded_path):
+            results["skipped_paths"].append(
+                {"path": expanded_path, "reason": "Directory in use"}
+            )
+            continue
+
         if dry_run:
-            click.echo(json.dumps({
-                "success": True,
-                "dry_run": True,
-                "size": size_before,
-                "formatted_size": format_size(size_before)
-            }))
-            return 0
-    else:
-        click.echo(f"Derived data size: {format_size(size_before)}")
-        if dry_run:
-            click.echo(f"Would free approximately {format_size(size_before)} (dry run)")
-            return 0
-    
-    click.echo(f"Cleaning Xcode derived data at {derived_data_path}...")
-    
-    expanded_path = os.path.expanduser(derived_data_path)
-    try:
-        items = os.listdir(expanded_path)
-        with click.progressbar(items, label="Cleaning derived data") as bar:
-            for item in bar:
-                item_path = os.path.join(expanded_path, item)
-                try:
-                    if os.path.isdir(item_path):
-                        shutil.rmtree(item_path)
-                    else:
-                        os.remove(item_path)
-                except (PermissionError, OSError) as e:
-                    if not json_output:
-                        click.echo(f"\nCould not remove {item}: {str(e)}", err=True)
-    except (PermissionError, OSError) as e:
-        if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": str(e)
-            }))
+            size = get_dir_size(expanded_path)
+            results["cleaned_paths"].append(
+                {"path": expanded_path, "size_bytes": size, "dry_run": True}
+            )
+            total_freed += size
         else:
-            click.echo(f"Error: {str(e)}", err=True)
-        return 1
-    
-    # Calculate space freed
-    size_after = get_xcode_path_size(derived_data_path)
-    space_freed = size_before - size_after
-    
+            size = clean_xcode_path(expanded_path, dry_run)
+            if size > 0:
+                results["cleaned_paths"].append(
+                    {"path": expanded_path, "size_bytes": size, "dry_run": False}
+                )
+                total_freed += size
+
+    results["total_freed_bytes"] = total_freed
+    results["total_freed_human"] = format_size(total_freed)
+
     if json_output:
-        click.echo(json.dumps({
-            "success": True,
-            "space_freed": space_freed,
-            "formatted_space_freed": format_size(space_freed),
-            "size_before": size_before,
-            "size_after": size_after
-        }))
-    else:
-        click.echo(f"Freed {format_size(space_freed)} of space from derived data")
-    
+        click.echo(json.dumps(results, indent=2))
+    elif not dry_run:
+        if total_freed > 0:
+            click.echo(f"✅ Freed {format_size(total_freed)} from Xcode derived data")
+        else:
+            click.echo("No Xcode derived data to clean")
+
     return 0
 
 
-@cleanup.command("archives")
-@click.option("--force", is_flag=True, help="Force cleanup even if directories appear to be in use")
-@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without actually removing files")
-@click.option("--keep-latest", is_flag=True, help="Keep the most recent archive for each project")
+@cleanup.command()
+@click.option(
+    "--force", is_flag=True, help="Force cleanup even if archives appear to be in use"
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually removing files",
+)
+@click.option(
+    "--keep-latest", is_flag=True, help="Keep the latest version of each archive"
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def cleanup_archives(force, dry_run, keep_latest, json_output):
+def _get_archives(archives_path: str) -> List[Dict[str, Any]]:
+    """Get a list of Xcode archives from the given path.
+
+    Args:
+        archives_path: Path to the Xcode archives directory.
+
+    Returns:
+        List of archive dictionaries with path, mtime, and name.
+    """
+    archives = []
+    for root, _, files in os.walk(archives_path):
+        for file in files:
+            if file.endswith(".xcarchive"):
+                archive_path = os.path.join(root, file)
+                archives.append(
+                    {
+                        "path": archive_path,
+                        "mtime": os.path.getmtime(archive_path),
+                        "name": os.path.basename(archive_path).split(".")[0],
+                    }
+                )
+    return archives
+
+
+def _get_archives_to_remove(
+    archives: List[Dict[str, Any]], keep_latest: bool
+) -> List[Dict[str, Any]]:
+    """Determine which archives should be removed.
+
+    Args:
+        archives: List of archive dictionaries.
+        keep_latest: If True, keep the latest version of each archive.
+
+    Returns:
+        List of archives to remove.
+    """
+    if not keep_latest:
+        return archives
+
+    # Sort archives by modification time (newest first)
+    archives.sort(key=lambda x: x["mtime"], reverse=True)
+
+    # Group archives by project name and keep only the latest for each
+    latest_archives = {}
+    to_remove = []
+
+    for archive in archives:
+        # Get project name from archive name (first part before space)
+        project_name = archive["name"].split(" ")[0]
+        if project_name not in latest_archives:
+            latest_archives[project_name] = archive
+        else:
+            to_remove.append(archive)
+
+    return to_remove
+
+
+def _calculate_total_size(archives: List[Dict[str, Any]]) -> int:
+    """Calculate the total size of the given archives.
+
+    Args:
+        archives: List of archive dictionaries.
+
+    Returns:
+        Total size in bytes.
+    """
+    total_size = 0
+    for archive in archives:
+        try:
+            total_size += get_dir_size(archive["path"])
+        except (OSError, PermissionError):
+            pass
+    return total_size
+
+
+def _remove_archives(archives: List[Dict[str, Any]]) -> Tuple[int, int, List[str]]:
+    """Remove the specified archives.
+
+    Args:
+        archives: List of archive dictionaries to remove.
+
+    Returns:
+        Tuple of (removed_count, removed_size, errors)
+    """
+    removed_count = 0
+    removed_size = 0
+    errors = []
+
+    for archive in archives:
+        try:
+            archive_size = get_dir_size(archive["path"])
+            shutil.rmtree(archive["path"])
+            removed_count += 1
+            removed_size += archive_size
+        except Exception as e:
+            errors.append(f"Failed to remove {archive['path']}: {str(e)}")
+
+    return removed_count, removed_size, errors
+
+
+def _show_results(
+    removed_count: int,
+    total_archives: int,
+    removed_size: int,
+    errors: List[str],
+    json_output: bool,
+) -> None:
+    """Display the results of the archive removal.
+
+    Args:
+        removed_count: Number of archives removed.
+        total_archives: Total number of archives that were attempted to be removed.
+        removed_size: Total size of removed archives in bytes.
+        errors: List of error messages.
+        json_output: If True, output results in JSON format.
+    """
+    result = {
+        "success": removed_count > 0,
+        "removed_count": removed_count,
+        "total_archives": total_archives,
+        "space_freed": removed_size,
+        "formatted_space_freed": format_size(removed_size),
+        "errors": errors,
+    }
+
+    if json_output:
+        click.echo(json.dumps(result, indent=2))
+    else:
+        if removed_count > 0:
+            click.echo(
+                f"✅ Removed {removed_count} archives "
+                f"(freed {format_size(removed_size)})"
+            )
+        if errors:
+            click.echo("\nEncountered some errors:", err=True)
+            for error in errors:
+                click.echo(f"  - {error}", err=True)
+
+
+def _get_archives_path() -> str:
+    """Get the path to the Xcode archives directory.
+
+    Returns:
+        Path to the Xcode archives directory.
+    """
+    home_dir = os.path.expanduser("~")
+    return os.path.join(home_dir, "Library/Developer/Xcode/Archives")
+
+
+def _handle_no_archives_found(json_output: bool) -> int:
+    """Handle the case when no archives are found.
+
+    Args:
+        json_output: Whether to output in JSON format.
+
+    Returns:
+        int: 0 for success.
+    """
+    message = "No archives found to clean"
+    if json_output:
+        click.echo(json.dumps({"message": message, "success": True}))
+    else:
+        click.echo(message)
+    return 0
+
+
+def _handle_no_archives_to_remove(keep_latest: bool, json_output: bool) -> int:
+    """Handle the case when no archives need to be removed.
+
+    Args:
+        keep_latest: Whether to keep the latest versions.
+        json_output: Whether to output in JSON format.
+
+    Returns:
+        int: 0 for success.
+    """
+    message = "No archives to remove"
+    if keep_latest:
+        message += " (keeping latest versions)"
+    if json_output:
+        click.echo(json.dumps({"message": message, "success": True}))
+    else:
+        click.echo(message)
+    return 0
+
+
+def _show_dry_run_results(
+    to_remove: List[Dict[str, Any]], total_size: int, json_output: bool
+) -> int:
+    """Show the results of a dry run.
+
+    Args:
+        to_remove: List of archives that would be removed.
+        total_size: Total size that would be freed.
+        json_output: Whether to output in JSON format.
+
+    Returns:
+        int: 0 for success.
+    """
+    result = {
+        "success": True,
+        "dry_run": True,
+        "archives_to_remove": [a["path"] for a in to_remove],
+        "total_archives": len(to_remove),
+        "space_to_free": total_size,
+        "formatted_space": format_size(total_size),
+    }
+    if json_output:
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(
+            f"Would remove {len(to_remove)} archives "
+            f"(total: {format_size(total_size)})"
+        )
+    return 0
+
+
+def cleanup_archives(
+    force: bool, dry_run: bool, keep_latest: bool, json_output: bool
+) -> int:
     """Clean Xcode archives directory.
-    
+
     Removes old app archives to free up space.
     Useful after distributing apps to App Store or TestFlight.
+
+    Args:
+        force: If True, clean even if archives appear to be in use.
+        dry_run: If True, only show what would be cleaned.
+        keep_latest: If True, keep the latest version of each archive.
+        json_output: If True, output results in JSON format.
+
+    Returns:
+        int: 0 on success, 1 on error.
     """
-    archives_path = "~/Library/Developer/Xcode/Archives"
-    
-    if not check_xcode_path_exists(archives_path):
-        if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": f"Archives directory not found at {archives_path}"
-            }))
-        else:
-            click.echo(f"Archives directory not found at {archives_path}")
-        return 1
-    
-    # Check if in use
-    if not force and is_directory_in_use(archives_path):
-        if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": "Archives directory appears to be in use. Use --force to clean anyway."
-            }))
-        else:
-            click.echo("Warning: Archives directory appears to be in use.")
-            click.echo("This may indicate that Xcode is currently archiving a project.")
-            click.echo("Use --force to clean anyway, or close Xcode first.")
-        return 1
-    
-    # Get size before cleaning
-    size_before = get_xcode_path_size(archives_path)
-    
+    # Get the path to the Xcode archives directory
+    archives_path = _get_archives_path()
     expanded_path = os.path.expanduser(archives_path)
-    
-    # Handle keep latest option (we need different logic)
-    if keep_latest:
-        if json_output and dry_run:
-            click.echo(json.dumps({
-                "success": True,
-                "dry_run": True,
-                "size": size_before,
-                "formatted_size": format_size(size_before),
-                "note": "Would keep latest archive for each project"
-            }))
-            return 0
-            
-        if not json_output:
-            click.echo(f"Archives size: {format_size(size_before)}")
-            if dry_run:
-                click.echo("Dry run: would keep the latest archive for each project")
-        
-        # Get organized structure of archives
-        # Format: {"ProjectName": {"20250515": [archive1.xcarchive, archive2.xcarchive]}}
-        archives_structure = {}
-        
-        try:
-            # Archives are typically organized by date folders
-            for date_dir in sorted(os.listdir(expanded_path)):
-                date_path = os.path.join(expanded_path, date_dir)
-                if os.path.isdir(date_path):
-                    for archive in os.listdir(date_path):
-                        if archive.endswith(".xcarchive"):
-                            # Extract project name from archive name
-                            # Format is usually ProjectName YYYY-MM-DD HH.MM.SS.xcarchive
-                            project_name = archive.split(" ")[0]
-                            
-                            if project_name not in archives_structure:
-                                archives_structure[project_name] = {}
-                            
-                            if date_dir not in archives_structure[project_name]:
-                                archives_structure[project_name][date_dir] = []
-                                
-                            archives_structure[project_name][date_dir].append(
-                                os.path.join(date_path, archive)
-                            )
-        except (PermissionError, OSError) as e:
-            if json_output:
-                click.echo(json.dumps({
-                    "success": False,
-                    "error": str(e)
-                }))
-            else:
-                click.echo(f"Error reading archives: {str(e)}", err=True)
-            return 1
-        
-        # For each project, find the latest archive and delete the rest
-        to_delete = []
-        for project, dates in archives_structure.items():
-            # Sort date dirs in reverse (newest first)
-            sorted_dates = sorted(dates.keys(), reverse=True)
-            
-            # Keep track of what we've seen
-            kept_for_project = False
-            
-            for date_dir in sorted_dates:
-                for archive_path in dates[date_dir]:
-                    if not kept_for_project:
-                        # Keep this one (the latest)
-                        kept_for_project = True
-                    else:
-                        # Delete older ones
-                        to_delete.append(archive_path)
-        
-        if dry_run:
-            space_would_free = 0
-            for archive_path in to_delete:
-                try:
-                    space_would_free += get_dir_size(archive_path)
-                except Exception:
-                    pass
-                    
-            if json_output:
-                click.echo(json.dumps({
-                    "success": True,
-                    "dry_run": True,
-                    "would_free": space_would_free,
-                    "formatted_would_free": format_size(space_would_free),
-                    "to_delete_count": len(to_delete),
-                    "size_before": size_before,
-                    "formatted_size_before": format_size(size_before)
-                }))
-            else:
-                click.echo(f"Would free approximately {format_size(space_would_free)} by removing {len(to_delete)} archives")
-                click.echo("Use without --dry-run to actually remove files")
-            return 0
-        
-        # If not dry run, actually remove the files
-        if not dry_run:
-            if not to_delete:
-                if json_output:
-                    click.echo(json.dumps({
-                        "success": True,
-                        "space_freed": 0,
-                        "formatted_space_freed": "0 B",
-                        "message": "No archives to remove. Each project has at most one archive."
-                    }))
-                else:
-                    click.echo("No archives to remove. Each project has at most one archive.")
-                return 0
-                
-            with click.progressbar(to_delete, label="Removing old archives") as bar:
-                space_freed = 0
-                success_count = 0
-                errors = []
-                
-                for archive_path in bar:
-                    try:
-                        archive_size = get_dir_size(archive_path)
-                        if os.path.isdir(archive_path):
-                            shutil.rmtree(archive_path)
-                        else:
-                            os.remove(archive_path)
-                        space_freed += archive_size
-                        success_count += 1
-                    except (PermissionError, OSError) as e:
-                        errors.append(f"Could not remove {os.path.basename(archive_path)}: {str(e)}")
-            
-            if json_output:
-                click.echo(json.dumps({
-                    "success": success_count > 0,
-                    "space_freed": space_freed,
-                    "formatted_space_freed": format_size(space_freed),
-                    "removed_count": success_count,
-                    "total_to_remove": len(to_delete),
-                    "errors": errors
-                }))
-            else:
-                click.echo(f"Freed {format_size(space_freed)} by removing {success_count} of {len(to_delete)} archives")
-                if errors:
-                    click.echo("\nErrors encountered:")
-                    for error in errors[:5]:  # Show only first 5 errors to avoid overwhelming output
-                        click.echo(f"  - {error}")
-                    if len(errors) > 5:
-                        click.echo(f"  - ...and {len(errors) - 5} more errors")
-            
-            return 0
-    else:
-        # Regular cleanup (remove all archives)
-        if json_output and dry_run:
-            click.echo(json.dumps({
-                "success": True,
-                "dry_run": True,
-                "size": size_before,
-                "formatted_size": format_size(size_before)
-            }))
-            return 0
-        
-        if not json_output:
-            click.echo(f"Archives size: {format_size(size_before)}")
-            if dry_run:
-                click.echo(f"Would free approximately {format_size(size_before)} (dry run)")
-                return 0
-        
-        # Actually clean up
-        space_freed = clean_xcode_path(archives_path, dry_run=False)
-        
+
+    if not os.path.exists(expanded_path):
+        message = f"Archives directory not found at {archives_path}"
         if json_output:
-            click.echo(json.dumps({
-                "success": True,
-                "space_freed": space_freed,
-                "formatted_space_freed": format_size(space_freed),
-                "size_before": size_before,
-                "size_after": size_before - space_freed
-            }))
+            click.echo(json.dumps({"success": False, "error": message}))
         else:
-            click.echo(f"Freed {format_size(space_freed)} of space from archives")
-        
-        return 0
+            click.echo(f"❌ {message}", err=True)
+        return 1
+
+    try:
+        # Get all archive files
+        archives = _get_archives(expanded_path)
+
+        if not archives:
+            return _handle_no_archives_found(json_output)
+
+        # Determine which archives to remove
+        to_remove = _get_archives_to_remove(archives, keep_latest)
+
+        if not to_remove:
+            return _handle_no_archives_to_remove(keep_latest, json_output)
+
+        # Calculate total size to be freed
+        total_size = _calculate_total_size(to_remove)
+
+        if dry_run:
+            return _show_dry_run_results(to_remove, total_size, json_output)
+
+        # Actually remove the archives
+        if not force and not json_output:
+            if not click.confirm(
+                f"Remove {len(to_remove)} archives? "
+                f"This will free {format_size(total_size)}. "
+                "Continue?"
+            ):
+                return 0
+
+        # Remove the archives and show results
+        removed_count, removed_size, errors = _remove_archives(to_remove)
+        _show_results(
+            removed_count=removed_count,
+            total_archives=len(to_remove),
+            removed_size=removed_size,
+            errors=errors,
+            json_output=json_output,
+        )
+
+        return 0 if removed_count > 0 else 1
+
+    except Exception as e:
+        error_msg = f"Error cleaning archives: {str(e)}"
+        if json_output:
+            click.echo(json.dumps({"success": False, "error": error_msg}))
+        else:
+            click.echo(f"❌ {error_msg}", err=True)
+        return 1
 
 
 @cleanup.command("device-support")
-@click.option("--force", is_flag=True, help="Force cleanup even if directories appear to be in use")
-@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without actually removing files")
-@click.option("--keep-latest", is_flag=True, help="Keep the most recent device support files for each iOS version")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force cleanup even if directories appear to be in use",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually removing files",
+)
+@click.option(
+    "--keep-latest",
+    is_flag=True,
+    help="Keep the most recent device support files for each iOS version",
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
-def cleanup_device_support(force, dry_run, keep_latest, json_output):
+def _get_device_support_path() -> str:
+    """Get the path to the Xcode device support directory.
+
+    Returns:
+        str: Path to the device support directory.
+    """
+    return os.path.expanduser("~/Library/Developer/Xcode/iOS DeviceSupport")
+
+
+def _get_device_support_directories(device_support_path: str) -> List[Dict[str, Any]]:
+    """Get all device support directories with their metadata.
+
+    Args:
+        device_support_path: Path to the device support directory.
+
+    Returns:
+        List of device support directory dictionaries with metadata.
+    """
+    device_dirs = []
+    try:
+        for dir_name in os.listdir(device_support_path):
+            dir_path = os.path.join(device_support_path, dir_name)
+            if os.path.isdir(dir_path):
+                mtime = os.path.getmtime(dir_path)
+                size = get_dir_size(dir_path)
+                device_dirs.append(
+                    {"name": dir_name, "path": dir_path, "mtime": mtime, "size": size}
+                )
+    except (PermissionError, OSError) as e:
+        raise RuntimeError(f"Error reading device support directory: {str(e)}")
+
+    return device_dirs
+
+
+def _group_device_support_by_version(
+    device_dirs: List[Dict[str, Any]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Group device support directories by iOS version.
+
+    Args:
+        device_dirs: List of device support directory dictionaries.
+
+    Returns:
+        Dictionary mapping iOS versions to their device support directories.
+    """
+    version_groups = {}
+    for device_dir in device_dirs:
+        # Extract version from name (e.g., "12.4.1" from "12.4.1 (16G102)")
+        version = device_dir["name"].split(" ")[0]
+        if version not in version_groups:
+            version_groups[version] = []
+        version_groups[version].append(device_dir)
+    return version_groups
+
+
+def _get_directories_to_remove(
+    device_dirs: List[Dict[str, Any]], keep_latest: bool
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Determine which device support directories to remove.
+
+    Args:
+        device_dirs: List of device support directory dictionaries.
+        keep_latest: Whether to keep the latest version of each iOS version.
+
+    Returns:
+        Tuple of (directories_to_remove, total_size_to_free)
+    """
+    if not device_dirs:
+        return [], 0
+
+    if not keep_latest:
+        total_size = sum(d["size"] for d in device_dirs)
+        return device_dirs, total_size
+
+    # Group by iOS version and keep the latest for each
+    version_groups = _group_device_support_by_version(device_dirs)
+    to_keep = []
+    to_remove = []
+
+    for version, dirs in version_groups.items():
+        # Sort by mtime (newest first) and keep the first one
+        dirs_sorted = sorted(dirs, key=lambda x: x["mtime"], reverse=True)
+        to_keep.append(dirs_sorted[0])
+        to_remove.extend(dirs_sorted[1:])
+
+    total_size = sum(d["size"] for d in to_remove)
+    return to_remove, total_size
+
+
+def _remove_device_support_directories(
+    to_remove: List[Dict[str, Any]],
+) -> Tuple[int, int, List[str]]:
+    """Remove the specified device support directories.
+
+    Args:
+        to_remove: List of device support directory dictionaries to remove.
+
+    Returns:
+        Tuple of (removed_count, removed_size, errors)
+    """
+    removed_count = 0
+    removed_size = 0
+    errors = []
+
+    for device_dir in to_remove:
+        try:
+            if os.path.exists(device_dir["path"]):
+                shutil.rmtree(device_dir["path"])
+                removed_count += 1
+                removed_size += device_dir["size"]
+        except Exception as e:
+            errors.append(f"Error removing {device_dir['path']}: {str(e)}")
+
+    return removed_count, removed_size, errors
+
+
+def _show_device_cleanup_results(
+    removed_count: int,
+    total_directories: int,
+    removed_size: int,
+    errors: List[str],
+    json_output: bool,
+) -> None:
+    """Show the results of the device cleanup operation.
+
+    Args:
+        removed_count: Number of directories removed.
+        total_directories: Total number of directories that could be removed.
+        removed_size: Total size of removed directories in bytes.
+        errors: List of error messages.
+        json_output: Whether to output in JSON format.
+    """
+    if json_output:
+        result = {
+            "success": True,
+            "removed_count": removed_count,
+            "total_directories": total_directories,
+            "space_freed": removed_size,
+            "formatted_space_freed": format_size(removed_size),
+            "errors": errors,
+        }
+        click.echo(json.dumps(result, indent=2))
+    else:
+        if removed_count > 0:
+            click.echo(
+                f"✅ Removed {removed_count} device support directories "
+                f"(freed {format_size(removed_size)})"
+            )
+        else:
+            click.echo("No device support directories were removed")
+
+        if errors:
+            click.echo("\nErrors:", err=True)
+            for error in errors[:5]:
+                click.echo(f"  - {error}", err=True)
+            if len(errors) > 5:
+                click.echo(f"  - ...and {len(errors) - 5} more errors")
+
+
+def cleanup_device_support(
+    force: bool, dry_run: bool, keep_latest: bool, json_output: bool
+) -> int:
     """Clean Xcode device support files.
-    
+
     Removes device support files for iOS/iPadOS devices.
     These can consume significant space over time.
+
+    Args:
+        force: If True, clean even if files appear to be in use.
+        dry_run: If True, only show what would be cleaned.
+        keep_latest: If True, keep the latest version of each iOS version.
+        json_output: If True, output results in JSON format.
+
+    Returns:
+        int: 0 on success, 1 on error.
     """
-    device_support_path = "~/Library/Developer/Xcode/iOS DeviceSupport"
-    
+    device_support_path = _get_device_support_path()
+
     if not check_xcode_path_exists(device_support_path):
+        message = f"Device support directory not found at {device_support_path}"
         if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": f"Device support directory not found at {device_support_path}"
-            }))
+            click.echo(json.dumps({"success": False, "error": message}))
         else:
-            click.echo(f"Device support directory not found at {device_support_path}")
+            click.echo(message, err=True)
         return 1
-    
+
     # Check if in use
     if not force and is_directory_in_use(device_support_path):
+        message = "Device support directory appears to be in use. Use --force to clean anyway."
         if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": "Device support directory appears to be in use. Use --force to clean anyway."
-            }))
+            click.echo(json.dumps({"success": False, "error": message}))
         else:
-            click.echo("Warning: Device support directory appears to be in use.")
-            click.echo("This may indicate that Xcode is currently using these files.")
-            click.echo("Use --force to clean anyway, or close Xcode first.")
+            click.echo(
+                "Warning: Device support directory appears to be in use.", err=True
+            )
+            click.echo(
+                "This may indicate that Xcode is currently using these files.", err=True
+            )
+            click.echo("Use --force to clean anyway, or close Xcode first.", err=True)
         return 1
-    
-    # Get size before cleaning
-    size_before = get_xcode_path_size(device_support_path)
-    
-    expanded_path = os.path.expanduser(device_support_path)
-    
-    # Handle keep latest option
-    if keep_latest:
-        if json_output and dry_run:
-            click.echo(json.dumps({
-                "success": True,
-                "dry_run": True,
-                "size": size_before,
-                "formatted_size": format_size(size_before),
-                "note": "Would keep latest device support files for each iOS version"
-            }))
-            return 0
-        
-        if not json_output:
-            click.echo(f"Device support size: {format_size(size_before)}")
-            if dry_run:
-                click.echo("Dry run: would keep the latest device support files for each iOS version")
-        
-        # Organize device support directories by iOS version
-        # iOS device support directories are usually named like "12.4.1 (16G102)" or "13.0 (17A577)"
-        ios_versions = {}
-        
-        try:
-            for item in os.listdir(expanded_path):
-                item_path = os.path.join(expanded_path, item)
-                if os.path.isdir(item_path):
-                    # Extract version from name (e.g. "12.4.1" from "12.4.1 (16G102)")
-                    version_match = re.match(r'^(\d+\.\d+(?:\.\d+)?)', item)
-                    if version_match:
-                        version = version_match.group(1)
-                        if version not in ios_versions:
-                            ios_versions[version] = []
-                        ios_versions[version].append(item_path)
-        except (PermissionError, OSError) as e:
+
+    try:
+        # Get all device support directories
+        device_dirs = _get_device_support_directories(device_support_path)
+
+        if not device_dirs:
+            message = "No device support directories found to clean"
             if json_output:
-                click.echo(json.dumps({
-                    "success": False,
-                    "error": str(e)
-                }))
+                click.echo(json.dumps({"message": message, "success": True}))
             else:
-                click.echo(f"Error reading device support directory: {str(e)}", err=True)
-            return 1
-        
-        # For each iOS version, keep only the latest directory
-        to_delete = []
-        for version, dirs in ios_versions.items():
-            if len(dirs) > 1:
-                # Sort by directory name in reverse order
-                # This works because the build number in parentheses increases with newer builds
-                sorted_dirs = sorted(dirs, reverse=True)
-                # Keep the first one (latest), delete the rest
-                to_delete.extend(sorted_dirs[1:])
-        
+                click.echo(message)
+            return 0
+
+        # Determine which directories to remove
+        to_remove, total_size = _get_directories_to_remove(device_dirs, keep_latest)
+
+        if not to_remove:
+            message = "No device support directories to remove"
+            if keep_latest:
+                message += " (keeping latest versions)"
+            if json_output:
+                click.echo(json.dumps({"message": message, "success": True}))
+            else:
+                click.echo(message)
+            return 0
+
+        # Handle dry run
         if dry_run:
-            space_would_free = 0
-            for dir_path in to_delete:
-                try:
-                    space_would_free += get_dir_size(dir_path)
-                except Exception:
-                    pass
-            
-            if json_output:
-                click.echo(json.dumps({
-                    "success": True,
-                    "dry_run": True,
-                    "would_free": space_would_free,
-                    "formatted_would_free": format_size(space_would_free),
-                    "to_delete_count": len(to_delete),
-                    "size_before": size_before,
-                    "formatted_size_before": format_size(size_before)
-                }))
-            else:
-                click.echo(f"Would free approximately {format_size(space_would_free)} by removing {len(to_delete)} device support directories")
-                click.echo("Use without --dry-run to actually remove files")
-            return 0
-        
-        # If not dry run, actually remove the directories
-        if not dry_run:
-            if not to_delete:
-                if json_output:
-                    click.echo(json.dumps({
-                        "success": True,
-                        "space_freed": 0,
-                        "formatted_space_freed": "0 B",
-                        "message": "No device support directories to remove. Each iOS version has at most one directory."
-                    }))
-                else:
-                    click.echo("No device support directories to remove. Each iOS version has at most one directory.")
-                return 0
-            
-            with click.progressbar(to_delete, label="Removing old device support files") as bar:
-                space_freed = 0
-                success_count = 0
-                errors = []
-                
-                for dir_path in bar:
-                    try:
-                        dir_size = get_dir_size(dir_path)
-                        shutil.rmtree(dir_path)
-                        space_freed += dir_size
-                        success_count += 1
-                    except (PermissionError, OSError) as e:
-                        errors.append(f"Could not remove {os.path.basename(dir_path)}: {str(e)}")
-            
-            if json_output:
-                click.echo(json.dumps({
-                    "success": success_count > 0,
-                    "space_freed": space_freed,
-                    "formatted_space_freed": format_size(space_freed),
-                    "removed_count": success_count,
-                    "total_to_remove": len(to_delete),
-                    "errors": errors
-                }))
-            else:
-                click.echo(f"Freed {format_size(space_freed)} by removing {success_count} of {len(to_delete)} device support directories")
-                if errors:
-                    click.echo("\nErrors encountered:")
-                    for error in errors[:5]:
-                        click.echo(f"  - {error}")
-                    if len(errors) > 5:
-                        click.echo(f"  - ...and {len(errors) - 5} more errors")
-            
-            return 0
-    else:
-        # Regular cleanup (remove all device support files)
-        if json_output and dry_run:
-            click.echo(json.dumps({
+            result = {
                 "success": True,
                 "dry_run": True,
-                "size": size_before,
-                "formatted_size": format_size(size_before)
-            }))
+                "directories_to_remove": [d["path"] for d in to_remove],
+                "total_directories": len(to_remove),
+                "space_to_free": total_size,
+                "formatted_space_to_free": format_size(total_size),
+            }
+            if json_output:
+                click.echo(json.dumps(result, indent=2))
+            else:
+                click.echo(
+                    f"Would remove {len(to_remove)} device support directories "
+                    f"(total: {format_size(total_size)})"
+                )
             return 0
-        
-        if not json_output:
-            click.echo(f"Device support size: {format_size(size_before)}")
-            if dry_run:
-                click.echo(f"Would free approximately {format_size(size_before)} (dry run)")
+
+        # Actually remove the directories
+        if not force and not json_output:
+            if not click.confirm(
+                f"Remove {len(to_remove)} device support directories? "
+                f"This will free {format_size(total_size)}. "
+                "Continue?"
+            ):
                 return 0
-        
-        # Actually clean up
-        space_freed = clean_xcode_path(device_support_path, dry_run=False)
-        
+
+        # Remove the directories and show results
+        removed_count, removed_size, errors = _remove_device_support_directories(
+            to_remove
+        )
+        _show_device_cleanup_results(
+            removed_count=removed_count,
+            total_directories=len(to_remove),
+            removed_size=removed_size,
+            errors=errors,
+            json_output=json_output,
+        )
+
+        return 0 if removed_count > 0 else 1
+
+    except Exception as e:
+        error_msg = f"Error cleaning device support directories: {str(e)}"
         if json_output:
-            click.echo(json.dumps({
-                "success": True,
-                "space_freed": space_freed,
-                "formatted_space_freed": format_size(space_freed),
-                "size_before": size_before,
-                "size_after": size_before - space_freed
-            }))
+            click.echo(json.dumps({"success": False, "error": error_msg}))
         else:
-            click.echo(f"Freed {format_size(space_freed)} of space from device support files")
-        
-        return 0
+            click.echo(f"❌ {error_msg}", err=True)
+        return 1
 
 
 @cleanup.command("simulators")
-@click.option("--force", is_flag=True, help="Force cleanup even if directories appear to be in use")
-@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without actually removing files")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force cleanup even if directories appear to be in use",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually removing files",
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 def cleanup_simulators(force, dry_run, json_output):
     """Clean iOS simulator caches and data.
-    
+
     Removes data, caches, and tmp files from iOS simulators.
     Preserves simulator devices but cleans their content.
     """
     simulator_path = "~/Library/Developer/CoreSimulator/Devices"
-    
+
     if not check_xcode_path_exists(simulator_path):
         if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": f"Simulator directory not found at {simulator_path}"
-            }))
+            click.echo(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": f"Simulator directory not found at {simulator_path}",
+                    }
+                )
+            )
         else:
             click.echo(f"Simulator directory not found at {simulator_path}")
         return 1
-    
+
     # Check if in use
     if not force and is_directory_in_use(simulator_path):
         if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": "Simulator directory appears to be in use. Use --force to clean anyway."
-            }))
+            click.echo(
+                json.dumps(
+                    {
+                        "success": False,
+                        "error": "Simulator directory appears to be in use. Use --force to clean anyway.",
+                    }
+                )
+            )
         else:
             click.echo("Warning: Simulator directory appears to be in use.")
             click.echo("This may indicate that the iOS Simulator is currently running.")
             click.echo("Use --force to clean anyway, or close iOS Simulator first.")
         return 1
-    
+
     # Get size before cleaning
     total_size_before = get_xcode_path_size(simulator_path)
     expanded_path = os.path.expanduser(simulator_path)
-    
+
     # For simulators, we want to clean specific subdirectories (data, cache, tmp)
     # but preserve the simulator devices themselves
     try:
         devices = os.listdir(expanded_path)
     except (PermissionError, OSError) as e:
         if json_output:
-            click.echo(json.dumps({
-                "success": False,
-                "error": str(e)
-            }))
+            click.echo(json.dumps({"success": False, "error": str(e)}))
         else:
             click.echo(f"Error reading simulator directory: {str(e)}", err=True)
         return 1
-    
+
     # Collect paths to clean
     cache_dirs = []
     data_dirs = []
     tmp_dirs = []
-    
+
     for device in devices:
         device_path = os.path.join(expanded_path, device)
         if os.path.isdir(device_path):
@@ -681,34 +921,40 @@ def cleanup_simulators(force, dry_run, json_output):
                     data_dirs.append(os.path.join(device_path, subdir))
                 elif subdir == "Library" or subdir == "tmp":
                     cache_dirs.append(os.path.join(device_path, subdir))
-    
+
     # Calculate sizes
     data_size = sum(get_dir_size(d) for d in data_dirs)
     cache_size = sum(get_dir_size(d) for d in cache_dirs)
-    
+
     # For dry run, just show what would be cleaned
     if dry_run:
         if json_output:
-            click.echo(json.dumps({
-                "success": True,
-                "dry_run": True,
-                "data_size": data_size,
-                "cache_size": cache_size,
-                "total_size": data_size + cache_size,
-                "formatted_data_size": format_size(data_size),
-                "formatted_cache_size": format_size(cache_size),
-                "formatted_total_size": format_size(data_size + cache_size)
-            }))
+            click.echo(
+                json.dumps(
+                    {
+                        "success": True,
+                        "dry_run": True,
+                        "data_size": data_size,
+                        "cache_size": cache_size,
+                        "total_size": data_size + cache_size,
+                        "formatted_data_size": format_size(data_size),
+                        "formatted_cache_size": format_size(cache_size),
+                        "formatted_total_size": format_size(data_size + cache_size),
+                    }
+                )
+            )
         else:
             click.echo(f"Simulator data size: {format_size(data_size)}")
             click.echo(f"Simulator cache size: {format_size(cache_size)}")
-            click.echo(f"Total would free: {format_size(data_size + cache_size)} (dry run)")
+            click.echo(
+                f"Total would free: {format_size(data_size + cache_size)} (dry run)"
+            )
         return 0
-    
+
     # If not dry run, actually clean the directories
     total_freed = 0
     errors = []
-    
+
     # Clean data directories
     if data_dirs:
         with click.progressbar(data_dirs, label="Cleaning simulator data") as bar:
@@ -725,13 +971,13 @@ def cleanup_simulators(force, dry_run, json_output):
                                 os.remove(item_path)
                         except (PermissionError, OSError) as e:
                             errors.append(f"Could not remove {item_path}: {str(e)}")
-                    
+
                     # Calculate space freed
                     data_size_after = get_dir_size(data_dir)
-                    total_freed += (data_size - data_size_after)
+                    total_freed += data_size - data_size_after
                 except Exception as e:
                     errors.append(f"Error processing {data_dir}: {str(e)}")
-    
+
     # Clean cache directories
     if cache_dirs:
         with click.progressbar(cache_dirs, label="Cleaning simulator caches") as bar:
@@ -748,20 +994,26 @@ def cleanup_simulators(force, dry_run, json_output):
                                 os.remove(item_path)
                         except (PermissionError, OSError) as e:
                             errors.append(f"Could not remove {item_path}: {str(e)}")
-                    
+
                     # Calculate space freed
                     cache_size_after = get_dir_size(cache_dir)
-                    total_freed += (cache_size - cache_size_after)
+                    total_freed += cache_size - cache_size_after
                 except Exception as e:
                     errors.append(f"Error processing {cache_dir}: {str(e)}")
-    
+
     if json_output:
-        click.echo(json.dumps({
-            "success": True,
-            "space_freed": total_freed,
-            "formatted_space_freed": format_size(total_freed),
-            "errors": errors[:10]  # Only include first 10 errors to avoid huge JSON
-        }))
+        click.echo(
+            json.dumps(
+                {
+                    "success": True,
+                    "space_freed": total_freed,
+                    "formatted_space_freed": format_size(total_freed),
+                    "errors": errors[
+                        :10
+                    ],  # Only include first 10 errors to avoid huge JSON
+                }
+            )
+        )
     else:
         click.echo(f"Freed {format_size(total_freed)} of space from simulator files")
         if errors:
@@ -770,58 +1022,80 @@ def cleanup_simulators(force, dry_run, json_output):
                 click.echo(f"  - {error}")
             if len(errors) > 5:
                 click.echo(f"  - ...and {len(errors) - 5} more errors")
-    
+
     return 0
 
 
 @cleanup.command("all")
-@click.option("--force", is_flag=True, help="Force cleanup even if directories appear to be in use")
-@click.option("--dry-run", is_flag=True, help="Show what would be cleaned without actually removing files")
-@click.option("--keep-latest", is_flag=True, help="Keep latest archives and device support")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force cleanup even if directories appear to be in use",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually removing files",
+)
+@click.option(
+    "--keep-latest", is_flag=True, help="Keep latest archives and device support"
+)
 @click.option("--json", "json_output", is_flag=True, help="Output in JSON format")
 def cleanup_all(force, dry_run, keep_latest, json_output):
     """Clean all Xcode caches and temporary files.
-    
+
     This runs all cleanup commands (derived-data, archives, device-support, simulators).
     Use --keep-latest to preserve the most recent archives and device support files.
     """
     # Store results from each cleanup operation
     results = {}
-    
+
     # Run derived data cleanup
     click.echo("Cleaning Xcode derived data...")
-    returncode = cleanup_derived_data.callback(force=force, dry_run=dry_run, json_output=False)
+    returncode = cleanup_derived_data.callback(
+        force=force, dry_run=dry_run, json_output=False
+    )
     results["derived_data"] = {"success": returncode == 0}
-    
+
     # Run archives cleanup
     click.echo("\nCleaning Xcode archives...")
-    returncode = cleanup_archives.callback(force=force, dry_run=dry_run, keep_latest=keep_latest, json_output=False)
+    returncode = cleanup_archives.callback(
+        force=force, dry_run=dry_run, keep_latest=keep_latest, json_output=False
+    )
     results["archives"] = {"success": returncode == 0}
-    
+
     # Run device support cleanup
     click.echo("\nCleaning device support files...")
-    returncode = cleanup_device_support.callback(force=force, dry_run=dry_run, keep_latest=keep_latest, json_output=False)
+    returncode = cleanup_device_support.callback(
+        force=force, dry_run=dry_run, keep_latest=keep_latest, json_output=False
+    )
     results["device_support"] = {"success": returncode == 0}
-    
+
     # Run simulator cleanup
     click.echo("\nCleaning simulator files...")
-    returncode = cleanup_simulators.callback(force=force, dry_run=dry_run, json_output=False)
+    returncode = cleanup_simulators.callback(
+        force=force, dry_run=dry_run, json_output=False
+    )
     results["simulators"] = {"success": returncode == 0}
-    
+
     # Calculate overall success
     overall_success = all(r["success"] for r in results.values())
-    
+
     if json_output:
-        click.echo(json.dumps({
-            "success": overall_success,
-            "results": results,
-            "dry_run": dry_run,
-            "keep_latest": keep_latest
-        }, indent=2))
+        click.echo(
+            json.dumps(
+                {
+                    "success": overall_success,
+                    "results": results,
+                    "dry_run": dry_run,
+                    "keep_latest": keep_latest,
+                },
+                indent=2,
+            )
+        )
     else:
         click.echo("\nXcode cleanup completed.")
         if dry_run:
             click.echo("This was a dry run. Use --force to actually clean files.")
-    
-    return 0 if overall_success else 1
 
+    return 0 if overall_success else 1
