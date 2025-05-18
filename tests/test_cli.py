@@ -5,7 +5,7 @@ Contains unit tests for the main CLI entry point."""
 from click.testing import CliRunner
 
 # Import after installing package in development mode
-from src.cli import cli
+from cli import cli
 
 
 def test_cli_basic():

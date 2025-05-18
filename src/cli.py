@@ -15,7 +15,7 @@ from commands.xcode import xcode
 
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="macos-tools")
 def cli():
     """A collection of useful tools for macOS.
     
