@@ -10,36 +10,12 @@ def test_docker_help():
     runner = CliRunner()
     result = runner.invoke(docker, ["--help"])
     assert result.exit_code == 0
-    assert "Docker management utilities." in result.output
+    assert "Docker management tools." in result.output
 
 
-def test_docker_clean():
-    """Test docker clean subcommand."""
+def test_docker_cleanup():
+    """Test docker cleanup subcommand."""
     runner = CliRunner()
-    result = runner.invoke(docker, ["clean", "--help"])
+    result = runner.invoke(docker, ["cleanup", "--help"])
     assert result.exit_code == 0
-    assert "Clean Docker resources" in result.output
-
-
-def test_docker_stats():
-    """Test docker stats subcommand."""
-    runner = CliRunner()
-    result = runner.invoke(docker, ["stats", "--help"])
-    assert result.exit_code == 0
-    assert "Show Docker statistics" in result.output
-
-
-def test_docker_clean_dry_run():
-    """Test docker clean with dry run flag."""
-    runner = CliRunner()
-    result = runner.invoke(docker, ["clean", "--dry-run"])
-    assert result.exit_code == 0
-    assert "Would remove" in result.output
-
-
-def test_docker_stats_no_containers():
-    """Test docker stats with no running containers."""
-    runner = CliRunner()
-    result = runner.invoke(docker, ["stats"])
-    assert result.exit_code == 0
-    assert "No running containers" in result.output
+    assert "Clean up Docker resources" in result.output

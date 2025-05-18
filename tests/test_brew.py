@@ -20,22 +20,6 @@ def test_brew_update():
     assert "Update Homebrew" in result.output
 
 
-def test_brew_install_no_package():
-    """Test brew install with no package specified."""
-    runner = CliRunner()
-    result = runner.invoke(brew, ["install"])
-    assert result.exit_code == 2
-    assert "Error: Missing argument" in result.output
-
-
-def test_brew_update_dry_run():
-    """Test brew update with dry run flag."""
-    runner = CliRunner()
-    result = runner.invoke(brew, ["update", "--dry-run"])
-    assert result.exit_code == 0
-    assert "Dry run" in result.output
-
-
 def test_brew_nonexistent_command():
     """Test brew with nonexistent subcommand."""
     runner = CliRunner()

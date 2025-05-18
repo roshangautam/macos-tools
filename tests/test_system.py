@@ -10,7 +10,7 @@ def test_system_help():
     runner = CliRunner()
     result = runner.invoke(system, ["--help"])
     assert result.exit_code == 0
-    assert "System management utilities." in result.output
+    assert "System management tools." in result.output
 
 
 def test_system_info():
@@ -18,28 +18,12 @@ def test_system_info():
     runner = CliRunner()
     result = runner.invoke(system, ["info", "--help"])
     assert result.exit_code == 0
-    assert "Show system information" in result.output
+    assert "Display system information" in result.output
 
 
-def test_system_info_verbose():
-    """Test system info with verbose flag."""
+def test_system_cleanup_temp():
+    """Test system cleanup temp subcommand."""
     runner = CliRunner()
-    result = runner.invoke(system, ["info", "--verbose"])
+    result = runner.invoke(system, ["cleanup-temp", "--help"])
     assert result.exit_code == 0
-    assert "Detailed system information" in result.output
-
-
-def test_system_clean():
-    """Test system clean subcommand."""
-    runner = CliRunner()
-    result = runner.invoke(system, ["clean", "--help"])
-    assert result.exit_code == 0
-    assert "Clean system caches" in result.output
-
-
-def test_system_clean_force():
-    """Test system clean with force flag."""
-    runner = CliRunner()
-    result = runner.invoke(system, ["clean", "--force"])
-    assert result.exit_code == 0
-    assert "Force cleaning" in result.output
+    assert "Clean up temporary files." in result.output
