@@ -5,11 +5,11 @@ import os
 import re
 import subprocess
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 
-from src.commands.system import format_size, get_dir_size
+from commands.system import format_size, get_dir_size
 
 
 def check_brew_exists() -> bool:

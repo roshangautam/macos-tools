@@ -2,3 +2,4 @@ click>=8.0.0
 black
 isort
 flake8
+pytest

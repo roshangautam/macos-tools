@@ -1,13 +1,13 @@
 """Xcode management tools for macos-tools CLI."""
 
 import json
-import os
+import os, subprocess
 import shutil
 from typing import Any, Dict, List, Tuple
 
 import click
 
-from ..utils.formatting import format_size
+from utils.formatting import format_size
 
 
 def get_dir_size(path: str) -> int:
