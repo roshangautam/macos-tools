@@ -65,7 +65,7 @@ jobs:
         git rm -rf . || true
         git add homebrew-tap/
         git commit -m "Update Homebrew formula to v${{ steps.get_version.outputs.version }}"
-        git remote add homebrew https://x-access-token:${{ secrets.PAT_GITHUB }}@github.com/roshangautam/macos-tools.git
+        git remote add homebrew "https://x-access-token:${{ secrets.PAT_GITHUB }}@github.com/roshangautam/macos-tools.git"
         git push homebrew homebrew-tap
 
     - name: Create GitHub Release
