@@ -59,14 +59,14 @@ jobs:
     
     - name: Commit and push Homebrew tap
       run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git checkout -b homebrew-tap origin/homebrew-tap 2>/dev/null || git checkout --orphan homebrew-tap
         git rm -rf . || true
         git add homebrew-tap/
         git commit -m "Update Homebrew formula to v${{ steps.get_version.outputs.version }}"
-        git remote set-url origin https://${{ secrets.PAT_GITHUB }}@github.com/roshangautam/macos-tools.git
-        git push origin homebrew-tap
+        git remote set-url homebrew https://x-access-token:${{ secrets.PAT_GITHUB }}@github.com/roshangautam/macos-tools.git
+        git push homebrew homebrew-tap
 
     - name: Create GitHub Release
       uses: actions/create-release@v1
