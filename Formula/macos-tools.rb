@@ -7,7 +7,7 @@ class MacosTools < Formula
   desc "A collection of useful command-line utilities for macOS system management and maintenance"
   homepage "https://github.com/roshangautam/macos-tools"
   url "https://github.com/roshangautam/macos-tools/archive/refs/tags/v0.0.1.tar.gz"
-  sha256 "a394a8bb05234fe97d6a0b09f0467df1582184c31b5e82be1fb873a956f86221"
+  sha256 "0c37cc16b8ac3bda310d9c7d91374017f7428afc15dc4bd28b2262af2e115ae4"
   license "MIT"
 
   depends_on :macos
