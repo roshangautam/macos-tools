@@ -1,9 +1,6 @@
 name: Publish Release and Homebrew Formula
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -67,7 +64,7 @@ jobs:
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
-        github_token: ${{ secrets.PAT_GITHUB }}
+        github_token: ${{ secrets.GITHUB_TOKEN }}
         branch: main
 
     - name: Create GitHub Release
