@@ -24,10 +24,10 @@ class HomebrewFormula
     
       def install
         # Install Python package
-        system "python3", "-m", "pip", "install", "--prefix=#{libexec}", "."
+        system "python3", "-m", "pip", "install", "--prefix=\#{libexec}", "."
         
         # Create wrapper scripts
-        bin.install_symlink libexec/"bin/macos-tools"
+        bin.install_symlink \#{libexec}/"bin/macos-tools"
       end
     
       test do
