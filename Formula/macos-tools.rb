@@ -4,6 +4,8 @@
 # https://github.com/roshangautam/macos-tools/actions
 
 class MacosTools < Formula
+  include Language::Python::Virtualenv
+
   desc "A collection of useful command-line utilities for macOS system management and maintenance"
   homepage "https://github.com/roshangautam/macos-tools"
   url "https://github.com/roshangautam/macos-tools/archive/refs/tags/v0.0.1.tar.gz"
@@ -14,11 +16,7 @@ class MacosTools < Formula
   depends_on "python@3.12"
 
   def install
-    # Install Python package
-    system "python3", "-m", "pip", "install", "--prefix=#{libexec}", "."
-
-    # Create wrapper scripts
-    bin.install_symlink #{libexec}/"bin/macos-tools"
+    virtualenv_install_with_resources
   end
 
   test do
