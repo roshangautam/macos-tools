@@ -63,8 +63,12 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add Formula/
         git commit -m "Update Homebrew formula to v${{ steps.get_version.outputs.version }}"
-        git remote set-url origin "https://x-access-token:${{ secrets.PAT_GITHUB }}@github.com/roshangautam/macos-tools.git"
-        git push origin main
+
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.PAT_GITHUB }}
+        branch: main
 
     - name: Create GitHub Release
       uses: actions/create-release@v1
@@ -75,9 +79,7 @@ jobs:
           Release v${{ steps.get_version.outputs.version }}
 
           ### Changes
-
           - Update Homebrew formula
-          - Publish Python package
         draft: false
         prerelease: false
       env:
